@@ -46,7 +46,7 @@ export function LoginDialog({ open, onClose }: { open: boolean; onClose: () => v
             <BookOpen className="size-6" />
           </div>
           <h2 className="mt-4 text-2xl font-bold tracking-tight">Welcome back</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in to your Book POS account</p>
+          <p className="mt-1 text-sm text-muted-foreground">Sign in to your Books POS account</p>
         </div>
 
         <form onSubmit={submit} className="mt-7 space-y-4">
