@@ -1,0 +1,10 @@
+node_modules
+.env
+*.log
+.DS_Store
+frontend/node_modules
+backend/node_modules
+backend/data/db.json
+.tanstack
+.output
+.nitro
