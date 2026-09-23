@@ -13,6 +13,10 @@ function apiBase() {
   return "";
 }
 
+export function isOfflineError(error: unknown) {
+  return error instanceof ApiError && (error.status === 0 || error.status >= 500);
+}
+
 export async function api<T>(path: string, init: RequestInit = {}, cookie?: string): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) {
@@ -20,11 +24,16 @@ export async function api<T>(path: string, init: RequestInit = {}, cookie?: stri
   }
   if (cookie) headers.set("Cookie", cookie);
 
-  const res = await fetch(`${apiBase()}${path}`, {
-    ...init,
-    credentials: "include",
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, {
+      ...init,
+      credentials: "include",
+      headers,
+    });
+  } catch {
+    throw new ApiError("No connection. Data stays saved on this device.", 0);
+  }
 
   const text = await res.text();
   let data: unknown = null;
@@ -32,13 +41,20 @@ export async function api<T>(path: string, init: RequestInit = {}, cookie?: stri
     try {
       data = JSON.parse(text);
     } catch {
-      throw new ApiError("Invalid server response", res.status);
+      data = null;
     }
   }
 
   if (!res.ok) {
-    const message = data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed";
-    throw new ApiError(message, res.status);
+    const message =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : "Request failed";
+    throw new ApiError(message, res.status || 503);
+  }
+
+  if (text && data === null) {
+    throw new ApiError("Invalid server response", res.status || 500);
   }
 
   return data as T;
@@ -47,7 +63,8 @@ export async function api<T>(path: string, init: RequestInit = {}, cookie?: stri
 export async function fetchMe(cookie?: string) {
   try {
     return await api<{ email: string; role: string }>("/api/auth/me", {}, cookie);
-  } catch {
+  } catch (error) {
+    if (isOfflineError(error)) throw error;
     return null;
   }
 }

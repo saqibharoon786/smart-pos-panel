@@ -9,18 +9,28 @@ import {
   RotateCcw,
   ShoppingCart,
 } from "lucide-react";
-import { fetchMe } from "@/lib/api";
-import { logout, setCurrentUser } from "@/lib/store";
+import { SyncStatus } from "@/components/SyncStatus";
+import { fetchMe, isOfflineError } from "@/lib/api";
+import { logout, readCachedSession, setCurrentUser } from "@/lib/store";
 
 export const Route = createFileRoute("/app")({
   ssr: false,
   beforeLoad: async () => {
-    const user = await fetchMe();
-    if (!user) {
-      throw redirect({ to: "/" });
+    try {
+      const user = await fetchMe();
+      if (user) {
+        setCurrentUser(user.email);
+        return { user };
+      }
+    } catch (error) {
+      if (!isOfflineError(error)) throw error;
+      const email = readCachedSession();
+      if (email) {
+        setCurrentUser(email);
+        return { user: { email, role: "admin" } };
+      }
     }
-    setCurrentUser(user.email);
-    return { user };
+    throw redirect({ to: "/" });
   },
   head: () => ({
     meta: [
@@ -84,9 +94,12 @@ function AppLayout() {
       </aside>
 
       <div className="flex flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border bg-background px-6">
+        <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border bg-background px-6 py-3">
           <h1 className="text-sm font-semibold text-muted-foreground">Multistore Level</h1>
-          <span className="text-sm text-muted-foreground">{user?.email}</span>
+          <div className="flex items-center gap-4">
+            <SyncStatus />
+            <span className="text-sm text-muted-foreground">{user?.email}</span>
+          </div>
         </header>
         <main className="flex-1 p-6">
           <Outlet />

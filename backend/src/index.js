@@ -4,7 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
-import { connectMongo, loadDb, mongoStatus, mutate } from "./db.js";
+import { connectMongo, loadDb, mongoStatus, mutate, saveDb } from "./db.js";
 import {
   adminEmail,
   adminPassword,
@@ -22,22 +22,31 @@ if (!process.env.JWT_SECRET || !adminEmail() || !adminPassword() || !process.env
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
-const origins = (process.env.FRONTEND_ORIGIN || "http://localhost:8080")
+const origins = (process.env.FRONTEND_ORIGIN || "http://localhost:8080,http://localhost:5173")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+function isLocalOrigin(origin) {
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(
   cors({
     origin(origin, cb) {
-      if (!origin || origins.includes(origin)) return cb(null, true);
-      return cb(new Error("Not allowed by CORS"));
+      if (!origin || origins.includes(origin) || isLocalOrigin(origin)) return cb(null, true);
+      return cb(null, false);
     },
     credentials: true,
   }),
 );
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "15mb" }));
 app.use(cookieParser());
 
 const loginLimiter = rateLimit({
@@ -84,6 +93,13 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   res.json(req.user);
 });
 
+function cleanDocs(docs) {
+  if (!Array.isArray(docs)) return [];
+  return docs
+    .filter((doc) => doc && typeof doc === "object" && typeof doc.id === "string" && doc.id)
+    .map(({ _id, _order, ...rest }) => rest);
+}
+
 app.get("/api/bootstrap", requireAuth, async (_req, res) => {
   const state = await loadDb();
   res.json({
@@ -92,9 +108,25 @@ app.get("/api/bootstrap", requireAuth, async (_req, res) => {
     sales: state.sales,
     posReturns: state.posReturns,
     heldSales: state.heldSales,
+    customDepartments: state.customDepartments,
     departments: logic.allDepartments(state),
     vendors: logic.VENDORS,
   });
+});
+
+app.put("/api/sync", requireAuth, async (req, res) => {
+  const body = req.body || {};
+  await saveDb({
+    products: cleanDocs(body.products),
+    popHistory: cleanDocs(body.popHistory),
+    sales: cleanDocs(body.sales),
+    posReturns: cleanDocs(body.posReturns),
+    heldSales: cleanDocs(body.heldSales),
+    customDepartments: Array.isArray(body.customDepartments)
+      ? body.customDepartments.map((name) => String(name || "").trim().toUpperCase()).filter(Boolean)
+      : [],
+  });
+  res.json({ ok: true });
 });
 
 app.post("/api/departments", requireAuth, async (req, res) => {
@@ -191,6 +223,15 @@ app.delete("/api/held-sales/:id", requireAuth, async (req, res) => {
 
 app.use("/api", requireAuth, (_req, res) => {
   res.status(404).json({ error: "Not found" });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  if (res.headersSent) return;
+  const mongoDown = /mongo|ECONNREFUSED|topology/i.test(err instanceof Error ? err.message : "");
+  res.status(mongoDown ? 503 : 500).json({
+    error: mongoDown ? "Database unavailable" : "Request failed",
+  });
 });
 
 try {
