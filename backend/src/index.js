@@ -1,4 +1,6 @@
 import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -223,6 +225,15 @@ app.delete("/api/held-sales/:id", requireAuth, async (req, res) => {
 
 app.use("/api", requireAuth, (_req, res) => {
   res.status(404).json({ error: "Not found" });
+});
+
+const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../frontend/dist");
+app.use(express.static(frontendDist));
+app.use((req, res, next) => {
+  if ((req.method !== "GET" && req.method !== "HEAD") || req.path.startsWith("/api")) return next();
+  res.sendFile(path.join(frontendDist, "index.html"), (err) => {
+    if (err) next();
+  });
 });
 
 app.use((err, _req, res, _next) => {

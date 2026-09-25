@@ -70,12 +70,12 @@ function slipCss() {
   .grand { font-size: 13px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
   .terms { margin-top: 2.5mm; text-align: center; font-size: 9.5px; }
   .terms .t { font-weight: 700; }
-  .tag { text-align: center; font-weight: 700; margin-top: 3mm; letter-spacing: 1px; }
+  .tag { text-align: center; font-weight: 700; margin-top: 2mm; letter-spacing: 1px; }
   .head { text-align: center; font-weight: 700; font-size: 13px; letter-spacing: 1px; margin-top: 1mm; }
-  .cut-space { height: 18mm; }
+  /* Just enough for the tear bar so the last line is not cut. */
+  .cut-space { height: 6mm; }
   @media print {
-    html, body { width: 80mm !important; height: auto !important; overflow: visible !important; }
-    .slip { break-inside: avoid-page; page-break-inside: avoid; }
+    html, body { width: 80mm !important; height: auto !important; overflow: hidden !important; }
   }
 `;
 }
@@ -225,7 +225,7 @@ function printHtml(html: string) {
   iframe.style.left = "0";
   iframe.style.top = "0";
   iframe.style.width = "80mm";
-  iframe.style.height = "2000px";
+  iframe.style.height = "auto";
   iframe.style.border = "0";
   iframe.style.opacity = "0";
   iframe.style.pointerEvents = "none";
@@ -256,10 +256,13 @@ function printHtml(html: string) {
       cleanup();
       return;
     }
-    const px = Math.max(inner.body.scrollHeight, inner.documentElement.scrollHeight, 400);
-    const mm = Math.max(90, Math.ceil((px * 25.4) / 96) + 8);
+    const slip = inner.querySelector(".slip");
+    const px = Math.ceil(slip?.getBoundingClientRect().height || inner.body.scrollHeight || 200);
+    // Match the paper length to the slip. A tall iframe was being measured
+    // as the page, so the printer fed a long blank tail.
+    const mm = Math.max(40, Math.ceil((px * 25.4) / 96) + 1);
     const page = inner.createElement("style");
-    page.textContent = `@page { size: 80mm ${mm}mm; margin: 0; }`;
+    page.textContent = `@page { size: 80mm ${mm}mm; margin: 0; } html, body { height: ${mm}mm !important; overflow: hidden !important; }`;
     inner.head.appendChild(page);
     iframe.style.height = `${px}px`;
     win.focus();
