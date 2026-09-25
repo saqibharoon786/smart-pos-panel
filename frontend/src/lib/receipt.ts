@@ -30,7 +30,7 @@ const money = (n: number) =>
 
 function slipCss() {
   return `
-  @page { size: 80mm auto; margin: 0; }
+  @page { size: 72mm auto; margin: 0; }
   * { box-sizing: border-box; }
   html, body {
     margin: 0;
@@ -40,18 +40,21 @@ function slipCss() {
     overflow: visible !important;
   }
   body {
-    width: 80mm;
-    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
-    font-size: 11px;
-    line-height: 1.35;
+    width: 72mm;
+    margin: 0 auto;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
     color: #000;
+    background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   .slip {
     width: 72mm;
-    margin: 0 auto;
-    padding: 3mm 1.5mm 0;
+    margin: 0;
+    padding: 2mm 2mm 0;
   }
   .meta { display: flex; justify-content: space-between; font-size: 10px; }
   .c { text-align: center; }
@@ -68,14 +71,13 @@ function slipCss() {
   .totals { margin-top: 1mm; }
   .totals div { display: flex; justify-content: space-between; font-size: 11px; }
   .grand { font-size: 13px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
-  .terms { margin-top: 2.5mm; text-align: center; font-size: 9.5px; }
+  .terms { margin-top: 2mm; text-align: center; font-size: 11px; font-weight: 600; }
   .terms .t { font-weight: 700; }
   .tag { text-align: center; font-weight: 700; margin-top: 2mm; letter-spacing: 1px; }
   .head { text-align: center; font-weight: 700; font-size: 13px; letter-spacing: 1px; margin-top: 1mm; }
-  /* Just enough for the tear bar so the last line is not cut. */
-  .cut-space { height: 6mm; }
+  .cut-space { height: 4mm; }
   @media print {
-    html, body { width: 80mm !important; height: auto !important; overflow: hidden !important; }
+    html, body { width: 72mm !important; height: auto !important; overflow: visible !important; }
   }
 `;
 }
@@ -221,15 +223,16 @@ function printHtml(html: string) {
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   iframe.setAttribute("title", "Receipt print");
+  // Off-screen but fully opaque. A collapsed or opacity:0 frame prints a blank roll.
   iframe.style.position = "fixed";
-  iframe.style.left = "0";
+  iframe.style.left = "-1000px";
   iframe.style.top = "0";
-  iframe.style.width = "80mm";
-  iframe.style.height = "auto";
+  iframe.style.width = "72mm";
+  iframe.style.height = "800px";
   iframe.style.border = "0";
-  iframe.style.opacity = "0";
+  iframe.style.opacity = "1";
+  iframe.style.background = "#fff";
   iframe.style.pointerEvents = "none";
-  iframe.style.zIndex = "-1";
   document.body.appendChild(iframe);
 
   let cleaned = false;
@@ -257,14 +260,12 @@ function printHtml(html: string) {
       return;
     }
     const slip = inner.querySelector(".slip");
-    const px = Math.ceil(slip?.getBoundingClientRect().height || inner.body.scrollHeight || 200);
-    // Match the paper length to the slip. A tall iframe was being measured
-    // as the page, so the printer fed a long blank tail.
-    const mm = Math.max(40, Math.ceil((px * 25.4) / 96) + 1);
+    const px = Math.ceil((slip instanceof HTMLElement ? slip.offsetHeight : 0) || 280);
+    const mm = Math.ceil((px * 25.4) / 96) + 2;
     const page = inner.createElement("style");
-    page.textContent = `@page { size: 80mm ${mm}mm; margin: 0; } html, body { height: ${mm}mm !important; overflow: hidden !important; }`;
+    page.textContent = `@page { size: 72mm ${mm}mm; margin: 0; }`;
     inner.head.appendChild(page);
-    iframe.style.height = `${px}px`;
+    iframe.style.height = `${px + 8}px`;
     win.focus();
     win.addEventListener("afterprint", cleanup);
     win.print();
