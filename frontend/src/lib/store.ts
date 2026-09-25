@@ -462,6 +462,22 @@ export async function holdSale(
   );
 }
 
+export async function deletePopEntry(id: string) {
+  const removed = await applyChange(
+    (db) => logic.deletePopEntry(db, id) as boolean,
+    (ok) => ok,
+  );
+  if (!removed) throw new Error("History record not found");
+}
+
+export async function deleteSale(id: string) {
+  const removed = await applyChange(
+    (db) => logic.deleteSale(db, id) as boolean,
+    (ok) => ok,
+  );
+  if (!removed) throw new Error("Receipt not found");
+}
+
 export async function deleteHeldSale(id: string) {
   await applyChange(
     (db) => logic.deleteHeldSale(db, id) as boolean,

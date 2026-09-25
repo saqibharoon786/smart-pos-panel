@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Pencil, Printer, ReceiptText, Search, X } from "lucide-react";
+import { Pencil, Printer, ReceiptText, Search, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { printReceipt } from "@/lib/receipt";
-import { updateSale, useSales, type Sale } from "@/lib/store";
+import { deleteSale, updateSale, useSales, type Sale } from "@/lib/store";
 
 
 export const Route = createFileRoute("/app/pos-history")({
@@ -66,6 +66,18 @@ function PosHistoryPage() {
                   aria-label={`Edit receipt ${sale.receiptNo}`}
                 >
                   <Pencil className="size-4" /> Edit
+                </button>
+                <button
+                  onClick={() => {
+                    if (!window.confirm(`Receipt ${sale.receiptNo} delete ho jaye? Bechi hui quantity stock mein wapas chali jayegi.`)) return;
+                    void deleteSale(sale.id)
+                      .then(() => toast.success(`Receipt ${sale.receiptNo} delete ho gai`))
+                      .catch(() => toast.error("Delete nahi ho saka"));
+                  }}
+                  className="flex h-8 items-center gap-1 rounded-md border border-destructive/40 px-2.5 text-xs font-medium text-destructive transition hover:bg-destructive/10"
+                  aria-label={`Delete receipt ${sale.receiptNo}`}
+                >
+                  <Trash2 className="size-4" /> Delete
                 </button>
 
               </div>

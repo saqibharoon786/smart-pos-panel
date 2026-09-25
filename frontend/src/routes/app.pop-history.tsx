@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Search } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { usePopHistory } from "@/lib/store";
+import { toast } from "sonner";
+import { deletePopEntry, usePopHistory } from "@/lib/store";
 
 export const Route = createFileRoute("/app/pop-history")({
   head: () => ({
@@ -39,8 +40,8 @@ function PopHistoryPage() {
         <table className="w-full min-w-[920px] text-sm">
           <thead className="bg-secondary text-left text-xs text-muted-foreground">
             <tr>
-              {["Date & Time", "Action", "Product", "UPC", "Department", "Vendor", "Qty", "Unit Cost", "Note"].map((label) => (
-                <th key={label} className="px-4 py-3 font-medium">{label}</th>
+              {["Date & Time", "Action", "Product", "UPC", "Department", "Vendor", "Qty", "Unit Cost", "Note", ""].map((label) => (
+                <th key={label || "actions"} className="px-4 py-3 font-medium">{label}</th>
               ))}
             </tr>
           </thead>
@@ -56,9 +57,23 @@ function PopHistoryPage() {
                 <td className="px-4 py-3">{entry.qty}</td>
                 <td className="px-4 py-3">Rs {entry.price.toFixed(2)}</td>
                 <td className="px-4 py-3 text-muted-foreground">{entry.note}</td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => {
+                      if (!window.confirm(`Delete this ${entry.action} record for ${entry.name}?`)) return;
+                      void deletePopEntry(entry.id)
+                        .then(() => toast.success("POP record deleted"))
+                        .catch(() => toast.error("Delete nahi ho saka"));
+                    }}
+                    className="flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-destructive transition hover:bg-destructive/10"
+                    aria-label={`Delete ${entry.name} history`}
+                  >
+                    <Trash2 className="size-4" /> Delete
+                  </button>
+                </td>
               </tr>
             ))}
-            {rows.length === 0 && <EmptyRow columns={9} text="No POP history found." />}
+            {rows.length === 0 && <EmptyRow columns={10} text="No POP history found." />}
           </tbody>
         </table>
         <div className="border-t border-border px-4 py-2 text-xs text-muted-foreground">{rows.length} record(s)</div>

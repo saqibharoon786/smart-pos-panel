@@ -214,6 +214,27 @@ export function holdSale(db, items, discount, info = {}) {
   return held;
 }
 
+export function deletePopEntry(db, id) {
+  const before = db.popHistory.length;
+  db.popHistory = db.popHistory.filter((entry) => entry.id !== id);
+  return db.popHistory.length < before;
+}
+
+export function deleteSale(db, id) {
+  const sale = db.sales.find((s) => s.id === id);
+  if (!sale) return false;
+  for (const item of sale.items) {
+    const restore = Math.max(0, Number(item.qty) - Number(item.returnedQty || 0));
+    if (restore <= 0) continue;
+    db.products = db.products.map((p) =>
+      p.id === item.id ? { ...p, onHandQty: Number(p.onHandQty) + restore } : p,
+    );
+  }
+  db.sales = db.sales.filter((s) => s.id !== id);
+  db.posReturns = (db.posReturns || []).filter((entry) => entry.saleId !== id);
+  return true;
+}
+
 export function deleteHeldSale(db, id) {
   const before = db.heldSales.length;
   db.heldSales = db.heldSales.filter((h) => h.id !== id);
