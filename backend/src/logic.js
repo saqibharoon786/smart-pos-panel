@@ -18,6 +18,38 @@ export function saleDiscountAmount(subtotal, type, value) {
   return 0;
 }
 
+function money2(n) {
+  return Number((Number(n) || 0).toFixed(2));
+}
+
+/** Unit price after an item-level discount. Amount discounts are per unit. */
+export function unitNetPrice(listPrice, type, value) {
+  const list = Math.max(0, Number(listPrice) || 0);
+  return money2(Math.max(0, list - saleDiscountAmount(list, type, value)));
+}
+
+function normalizeSaleLine(db, item) {
+  const product = db.products.find((p) => p.id === item.id);
+  const discountType = item.discountType === "amount" || item.discountType === "percent" ? item.discountType : "none";
+  const discountValue = Number(item.discountValue) || 0;
+  const listPrice = Math.max(0, Number(item.listPrice ?? item.price) || 0);
+  const price = unitNetPrice(listPrice, discountType, discountValue);
+  const qty = Number(item.qty) || 0;
+  return {
+    id: item.id,
+    name: item.name || product?.name || "",
+    upc: item.upc || product?.upc || "",
+    qty,
+    returnedQty: Number(item.returnedQty) || 0,
+    listPrice,
+    discountType,
+    discountValue,
+    lineDiscount: money2((listPrice - price) * qty),
+    price,
+    cost: Number(item.cost ?? product?.avgCost ?? 0) || 0,
+  };
+}
+
 export function allDepartments(db) {
   const extra = Array.isArray(db.customDepartments) ? db.customDepartments : [];
   return [...DEPARTMENTS, ...extra];
@@ -181,18 +213,19 @@ export function commitSale(db, items, discount) {
     const hit = items.find((i) => i.id === p.id);
     return hit ? { ...p, onHandQty: Number(p.onHandQty) - hit.qty } : p;
   });
-  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const discAmount = saleDiscountAmount(subtotal, discount?.type, discount?.value);
+  const saleItems = items.map((i) => normalizeSaleLine(db, { ...i, returnedQty: 0 }));
+  const subtotal = money2(saleItems.reduce((s, i) => s + i.price * i.qty, 0));
+  const discAmount = money2(saleDiscountAmount(subtotal, discount?.type, discount?.value));
   const sale = {
     id: `s-${Date.now()}`,
     at: Date.now(),
     receiptNo: `R-${1000 + db.sales.length + 1}`,
-    items: items.map((i) => ({ ...i, returnedQty: 0 })),
+    items: saleItems,
     subtotal,
     discountType: discount?.type ?? "none",
     discountValue: Number(discount?.value) || 0,
     discount: discAmount,
-    total: Math.max(0, subtotal - discAmount),
+    total: money2(Math.max(0, subtotal - discAmount)),
     refunded: 0,
   };
   db.sales = [sale, ...db.sales];
@@ -208,7 +241,20 @@ export function holdSale(db, items, discount, info = {}) {
     note: (info.note || "").trim(),
     discountType: discount.type,
     discountValue: Number(discount.value) || 0,
-    items: items.map((i) => ({ ...i })),
+    items: items.map((i) => {
+      const line = normalizeSaleLine(db, i);
+      return {
+        id: line.id,
+        name: line.name,
+        upc: line.upc,
+        price: line.price,
+        listPrice: line.listPrice,
+        qty: line.qty,
+        discountType: line.discountType,
+        discountValue: line.discountValue,
+        cost: line.cost,
+      };
+    }),
   };
   db.heldSales = [held, ...db.heldSales];
   return held;
@@ -297,7 +343,14 @@ export function updateSale(db, saleId, lines) {
     const diff = qty - it.qty;
     const available = Number(db.products.find((p) => p.id === it.id)?.onHandQty ?? 0);
     if (diff > available) return null;
-    return { ...it, qty, price };
+    const listPrice = Math.max(price, Number(it.listPrice ?? it.price) || 0);
+    return {
+      ...it,
+      qty,
+      price: money2(price),
+      listPrice: money2(listPrice),
+      lineDiscount: money2(Math.max(0, listPrice - price) * qty),
+    };
   });
 
   if (updatedItems.some((i) => i === null)) return false;
@@ -311,9 +364,9 @@ export function updateSale(db, saleId, lines) {
       );
     }
   });
-  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const discount = saleDiscountAmount(subtotal, sale.discountType, sale.discountValue);
-  const total = Math.max(0, subtotal - discount);
+  const subtotal = money2(items.reduce((s, i) => s + i.price * i.qty, 0));
+  const discount = money2(saleDiscountAmount(subtotal, sale.discountType, sale.discountValue));
+  const total = money2(Math.max(0, subtotal - discount));
   db.sales = db.sales.map((s) => (s.id === saleId ? { ...s, items, subtotal, discount, total } : s));
   return true;
 }

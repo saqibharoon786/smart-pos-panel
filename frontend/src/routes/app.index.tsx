@@ -9,11 +9,12 @@ import {
   RotateCcw,
   ShoppingBag,
   TrendingDown,
+  TrendingUp,
 } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { finalPrice, usePopHistory, useProducts, useSales } from "@/lib/store";
+import { finalPrice, usePopHistory, useProducts, useSales, type Product, type Sale } from "@/lib/store";
 
 export const Route = createFileRoute("/app/")({
   head: () => ({
@@ -115,6 +116,26 @@ function chartBuckets(sales: { at: number; total: number; refunded: number }[], 
   return months;
 }
 
+function unitCost(item: Sale["items"][number], products: Product[]) {
+  if (item.cost != null && Number.isFinite(Number(item.cost))) return Number(item.cost);
+  return Number(products.find((p) => p.id === item.id)?.avgCost) || 0;
+}
+
+function saleFigures(sale: Sale, products: Product[]) {
+  const netQty = (item: Sale["items"][number]) => Math.max(0, Number(item.qty) - Number(item.returnedQty || 0));
+  const cogs = sale.items.reduce((t, item) => t + unitCost(item, products) * netQty(item), 0);
+  const revenue = Math.max(0, Number(sale.total || 0) - Number(sale.refunded || 0));
+  const grossLines = sale.items.reduce((t, item) => t + Number(item.price) * Number(item.qty), 0);
+  const keptLines = sale.items.reduce((t, item) => t + Number(item.price) * netQty(item), 0);
+  const billShare = grossLines > 0 ? (Number(sale.discount || 0) * keptLines) / grossLines : 0;
+  const itemShare = sale.items.reduce((t, item) => {
+    const qty = Number(item.qty) || 0;
+    const share = qty > 0 ? netQty(item) / qty : 0;
+    return t + (Number(item.lineDiscount) || 0) * share;
+  }, 0);
+  return { revenue, cogs, profit: revenue - cogs, discount: billShare + itemShare };
+}
+
 const presets: { id: Preset; label: string }[] = [
   { id: "today", label: "Today" },
   { id: "week", label: "Weekly" },
@@ -145,7 +166,11 @@ function Dashboard() {
   const gross = sum(periodSales, (s) => s.total);
   const refund = sum(periodSales, (s) => s.refunded);
   const net = Math.max(0, gross - refund);
-  const discount = sum(periodSales, (s) => Number(s.discount || 0));
+  const periodFigures = periodSales.map((sale) => ({ sale, ...saleFigures(sale, products) }));
+  const discount = periodFigures.reduce((t, row) => t + row.discount, 0);
+  const cogs = periodFigures.reduce((t, row) => t + row.cogs, 0);
+  const profit = periodFigures.reduce((t, row) => t + row.profit, 0);
+  const margin = net > 0 ? (profit / net) * 100 : 0;
   const itemsSold = periodSales.reduce(
     (t, s) => t + s.items.reduce((q, i) => q + i.qty - i.returnedQty, 0),
     0,
@@ -183,10 +208,17 @@ function Dashboard() {
   const rangeLabel = from === dayStart(new Date()) && preset === "today" ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
 
   const cards = [
-    { label: "Net Sales", value: money(net), sub: `${periodSales.length} receipt(s)`, icon: DollarSign },
-    { label: "Items Sold", value: String(itemsSold), sub: `Discount ${money(discount)}`, icon: ShoppingBag },
-    { label: "Refunds", value: money(refund), sub: `${periodSales.filter((s) => s.refunded > 0).length} refunded receipt(s)`, icon: RotateCcw },
-    { label: "Products", value: String(products.length), sub: `${stockUnits} unit(s) in stock`, icon: Boxes },
+    { label: "Net Sales", value: money(net), sub: `${periodSales.length} receipt(s)`, icon: DollarSign, tone: "" },
+    {
+      label: "Profit",
+      value: money(profit),
+      sub: `Cost ${money(cogs)} • ${margin.toFixed(1)}% margin`,
+      icon: TrendingUp,
+      tone: profit < 0 ? "text-destructive" : "text-primary",
+    },
+    { label: "Items Sold", value: String(itemsSold), sub: `Discount ${money(discount)}`, icon: ShoppingBag, tone: "" },
+    { label: "Refunds", value: money(refund), sub: `${periodSales.filter((s) => s.refunded > 0).length} refunded receipt(s)`, icon: RotateCcw, tone: "" },
+    { label: "Products", value: String(products.length), sub: `${stockUnits} unit(s) in stock`, icon: Boxes, tone: "" },
   ];
 
   const chipClass = (active: boolean) =>
@@ -252,14 +284,14 @@ function Dashboard() {
         </Popover>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {cards.map((c) => (
           <div key={c.label} className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">{c.label}</span>
               <c.icon className="size-4 text-primary" />
             </div>
-            <div className="mt-2 text-2xl font-bold">{c.value}</div>
+            <div className={`mt-2 text-2xl font-bold ${c.tone}`}>{c.value}</div>
             <p className="mt-1 text-xs text-muted-foreground">{c.sub}</p>
           </div>
         ))}
@@ -303,21 +335,29 @@ function Dashboard() {
         <div className="rounded-xl border border-border bg-card lg:col-span-2">
           <h3 className="border-b border-border px-5 py-4 text-sm font-semibold">Receipts in this period</h3>
           <div className="divide-y divide-border">
-            {periodSales.slice(0, 8).map((s) => (
+            {periodSales.slice(0, 8).map((s) => {
+              const figures = saleFigures(s, products);
+              const itemDisc = s.items.reduce((t, i) => t + (Number(i.lineDiscount) || 0), 0);
+              return (
               <div key={s.id} className="flex items-center justify-between gap-3 px-5 py-3 text-sm">
                 <div>
                   <p className="font-medium">{s.receiptNo}</p>
                   <p className="text-xs text-muted-foreground">
                     {new Date(s.at).toLocaleString()} • {s.items.length} line(s)
-                    {Number(s.discount || 0) > 0 ? ` • discount ${money(Number(s.discount))}` : ""}
+                    {itemDisc > 0 ? ` • item disc ${money(itemDisc)}` : ""}
+                    {Number(s.discount || 0) > 0 ? ` • bill disc ${money(Number(s.discount))}` : ""}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold">{money(Math.max(0, s.total - s.refunded))}</p>
+                  <p className="font-semibold">{money(figures.revenue)}</p>
+                  <p className={`text-xs ${figures.profit < 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                    profit {money(figures.profit)}
+                  </p>
                   {s.refunded > 0 && <p className="text-xs text-destructive">refunded {money(s.refunded)}</p>}
                 </div>
               </div>
-            ))}
+              );
+            })}
             {periodSales.length === 0 && <p className="px-5 py-10 text-center text-sm text-muted-foreground">Is date range mein koi sale nahi.</p>}
           </div>
         </div>

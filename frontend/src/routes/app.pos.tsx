@@ -30,7 +30,41 @@ export const Route = createFileRoute("/app/pos")({
   component: PosPage,
 });
 
-type Line = { id: string; name: string; price: number; qty: number; upc: string; stock: number };
+type DiscType = "none" | "percent" | "amount";
+type Line = {
+  id: string;
+  name: string;
+  listPrice: number;
+  qty: number;
+  upc: string;
+  stock: number;
+  discType: DiscType;
+  discValue: number;
+  cost: number;
+};
+
+function netUnit(line: Pick<Line, "listPrice" | "discType" | "discValue">) {
+  const off = saleDiscountAmount(line.listPrice, line.discType, line.discValue);
+  return Math.max(0, Number((line.listPrice - off).toFixed(2)));
+}
+
+function lineGross(line: Pick<Line, "listPrice" | "qty">) {
+  return line.listPrice * line.qty;
+}
+
+function toCheckout(line: Line) {
+  return {
+    id: line.id,
+    name: line.name,
+    upc: line.upc,
+    price: netUnit(line),
+    listPrice: line.listPrice,
+    qty: line.qty,
+    discountType: line.discType,
+    discountValue: line.discValue,
+    cost: line.cost,
+  };
+}
 
 function PosPage() {
   const products = useProducts();
@@ -40,7 +74,7 @@ function PosPage() {
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(false);
   const [q, setQ] = useState("");
-  const [discType, setDiscType] = useState<"none" | "percent" | "amount">("none");
+  const [discType, setDiscType] = useState<DiscType>("none");
   const [discValue, setDiscValue] = useState(0);
   const [holdLabel, setHoldLabel] = useState("");
   const held = useHeldSales();
@@ -57,19 +91,24 @@ function PosPage() {
       toast.error("Not enough stock");
       return;
     }
+    const catalogDisc =
+      p.discountType === "amount" || p.discountType === "percent" ? p.discountType : "none";
     const line: Line = {
       id: p.id,
       name: p.name,
-      price: Number(p.regPrice),
+      listPrice: Number(p.regPrice) || 0,
       qty: 1,
       upc: p.upc,
       stock: Number(p.onHandQty),
+      discType: catalogDisc,
+      discValue: catalogDisc === "none" ? 0 : Number(p.discountValue) || 0,
+      cost: Number(p.avgCost) || 0,
     };
-    setLines((ls) =>
-      ls.some((l) => l.id === p.id)
-        ? ls.map((l) => (l.id === p.id ? { ...l, qty: l.qty + 1 } : l))
-        : [...ls, line],
-    );
+    setLines((ls) => {
+      const existing = ls.find((l) => l.id === p.id);
+      if (!existing) return [...ls, line];
+      return ls.map((l) => (l.id === p.id ? { ...l, qty: l.qty + 1 } : l));
+    });
     setLast(line);
     setError("");
   };
@@ -105,8 +144,10 @@ function PosPage() {
       }),
     );
 
-  const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
   const itemCount = lines.reduce((s, l) => s + l.qty, 0);
+  const gross = lines.reduce((s, l) => s + lineGross(l), 0);
+  const itemDiscount = lines.reduce((s, l) => s + (lineGross(l) - netUnit(l) * l.qty), 0);
+  const subtotal = Math.max(0, gross - itemDiscount);
   const discount = saleDiscountAmount(subtotal, discType, discValue);
   const grandTotal = Math.max(0, subtotal - discount);
 
@@ -115,7 +156,10 @@ function PosPage() {
   );
 
   const setLinePrice = (id: string, price: number) =>
-    setLines((ls) => ls.map((l) => (l.id === id ? { ...l, price: price < 0 ? 0 : price } : l)));
+    setLines((ls) => ls.map((l) => (l.id === id ? { ...l, listPrice: price < 0 ? 0 : price } : l)));
+
+  const setLineDiscount = (id: string, patch: Partial<Pick<Line, "discType" | "discValue">>) =>
+    setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 
   const setLineQty = (id: string, qty: number) =>
     setLines((ls) =>
@@ -133,7 +177,7 @@ function PosPage() {
   const charge = async () => {
     try {
       const sale = await commitSale(
-        lines.map((l) => ({ id: l.id, name: l.name, upc: l.upc, price: l.price, qty: l.qty })),
+        lines.map(toCheckout),
         { type: discType, value: discValue },
       );
       if (sale) printReceipt(sale);
@@ -150,7 +194,7 @@ function PosPage() {
 
   const hold = async () => {
     const saved = await holdSale(
-      lines.map((l) => ({ id: l.id, name: l.name, upc: l.upc, price: l.price, qty: l.qty })),
+      lines.map(toCheckout),
       { type: discType, value: discValue },
       { label: holdLabel },
     );
@@ -182,7 +226,18 @@ function PosPage() {
       }
       const qty = Math.min(item.qty, stock);
       if (qty < item.qty) trimmed = true;
-      restored.push({ id: item.id, name: product.name, upc: product.upc, price: item.price, qty, stock });
+      const savedType = item.discountType === "amount" || item.discountType === "percent" ? item.discountType : "none";
+      restored.push({
+        id: item.id,
+        name: product.name,
+        upc: product.upc,
+        listPrice: Number(item.listPrice ?? item.price) || 0,
+        qty,
+        stock,
+        discType: savedType,
+        discValue: savedType === "none" ? 0 : Number(item.discountValue) || 0,
+        cost: Number(item.cost ?? product.avgCost) || 0,
+      });
     }
     if (restored.length === 0) {
       toast.error("Is held receipt ke items ka stock khatam ho gaya hai");
@@ -248,7 +303,7 @@ function PosPage() {
             <div className="text-xs uppercase tracking-wide text-muted-foreground">Last scanned</div>
             <div className="mt-1 flex flex-wrap items-baseline justify-between gap-2">
               <div className="text-lg font-bold">{last.name}</div>
-              <div className="text-lg font-bold text-primary">Rs {last.price.toFixed(2)}</div>
+              <div className="text-lg font-bold text-primary">Rs {netUnit(last).toFixed(2)}</div>
             </div>
             <div className="text-xs text-muted-foreground">
               UPC {last.upc || "—"} • In stock {last.stock}
@@ -286,7 +341,20 @@ function PosPage() {
                   <td className="px-4 py-3 font-medium">{p.name}</td>
                   <td className="px-4 py-3">{p.department}</td>
                   <td className="px-4 py-3 text-muted-foreground">{p.upc || "—"}</td>
-                  <td className="px-4 py-3">Rs {Number(p.regPrice).toFixed(2)}</td>
+                  <td className="px-4 py-3">
+                    {p.discountType !== "none" && Number(p.discountValue) > 0 ? (
+                      <span>
+                        <span className="mr-1 text-muted-foreground line-through">Rs {Number(p.regPrice).toFixed(2)}</span>
+                        Rs {netUnit({
+                          listPrice: Number(p.regPrice) || 0,
+                          discType: p.discountType,
+                          discValue: Number(p.discountValue) || 0,
+                        }).toFixed(2)}
+                      </span>
+                    ) : (
+                      <>Rs {Number(p.regPrice).toFixed(2)}</>
+                    )}
+                  </td>
                   <td className="px-4 py-3">{p.onHandQty}</td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -327,7 +395,10 @@ function PosPage() {
                 <div className="flex-1">
                   <div className="font-medium">{l.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    Line total Rs {(l.price * l.qty).toFixed(2)}
+                    Line total Rs {(netUnit(l) * l.qty).toFixed(2)}
+                    {l.listPrice > netUnit(l) && (
+                      <span className="ml-1 line-through">Rs {lineGross(l).toFixed(2)}</span>
+                    )}
                   </div>
                 </div>
                 <button
@@ -356,10 +427,32 @@ function PosPage() {
                 <span className="ml-auto text-xs text-muted-foreground">Rs</span>
                 <input
                   type="number"
-                  value={l.price}
+                  value={l.listPrice}
                   onChange={(e) => setLinePrice(l.id, Number(e.target.value))}
                   aria-label={`Price for ${l.name}`}
                   className="h-8 w-20 rounded-md border border-border bg-background px-2 text-right text-sm outline-none"
+                />
+              </div>
+              <div className="mt-2 flex gap-2">
+                <select
+                  value={l.discType}
+                  onChange={(e) => setLineDiscount(l.id, { discType: e.target.value as DiscType })}
+                  aria-label={`Item discount type for ${l.name}`}
+                  className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none"
+                >
+                  <option value="none">No item discount</option>
+                  <option value="percent">Item % off</option>
+                  <option value="amount">Rs off each</option>
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={l.discType === "percent" ? 100 : undefined}
+                  value={l.discValue}
+                  disabled={l.discType === "none"}
+                  onChange={(e) => setLineDiscount(l.id, { discValue: Math.max(0, Number(e.target.value) || 0) })}
+                  aria-label={`Item discount for ${l.name}`}
+                  className="h-8 w-16 rounded-md border border-border bg-background px-2 text-right text-xs outline-none disabled:opacity-50"
                 />
               </div>
             </div>
@@ -367,6 +460,12 @@ function PosPage() {
           {lines.length === 0 && <p className="text-sm text-muted-foreground">No items yet.</p>}
         </div>
         <div className="space-y-2 border-t border-border pt-3">
+          {itemDiscount > 0 && (
+            <div className="flex items-center justify-between text-sm text-destructive">
+              <span>Item discount</span>
+              <span>- Rs {itemDiscount.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Subtotal</span>
             <span>Rs {subtotal.toFixed(2)}</span>
@@ -375,12 +474,12 @@ function PosPage() {
           <div>
             <div className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
               <Percent className="size-3" />
-              Discount
+              Bill discount
             </div>
             <div className="flex gap-2">
               <select
                 value={discType}
-                onChange={(e) => setDiscType(e.target.value as "none" | "percent" | "amount")}
+                onChange={(e) => setDiscType(e.target.value as DiscType)}
                 aria-label="Discount type"
                 className="h-9 flex-1 rounded-md border border-border bg-background px-2 text-sm outline-none"
               >
@@ -416,7 +515,7 @@ function PosPage() {
 
           {discount > 0 && (
             <div className="flex items-center justify-between text-sm text-destructive">
-              <span>Discount {discType === "percent" ? `(${discValue}%)` : ""}</span>
+              <span>Bill discount {discType === "percent" ? `(${discValue}%)` : ""}</span>
               <span>- Rs {discount.toFixed(2)}</span>
             </div>
           )}

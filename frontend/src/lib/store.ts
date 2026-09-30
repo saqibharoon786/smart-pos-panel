@@ -59,6 +59,11 @@ export type SaleItem = {
   price: number;
   qty: number;
   returnedQty: number;
+  listPrice?: number;
+  discountType?: "none" | "amount" | "percent";
+  discountValue?: number;
+  lineDiscount?: number;
+  cost?: number;
 };
 
 export type Sale = {
@@ -81,7 +86,17 @@ export type HeldSale = {
   note: string;
   discountType: "none" | "amount" | "percent";
   discountValue: number;
-  items: { id: string; name: string; upc: string; price: number; qty: number }[];
+  items: {
+    id: string;
+    name: string;
+    upc: string;
+    price: number;
+    qty: number;
+    listPrice?: number;
+    discountType?: "none" | "amount" | "percent";
+    discountValue?: number;
+    cost?: number;
+  }[];
 };
 
 export type PosReturnEntry = {
@@ -450,8 +465,20 @@ export async function addDepartment(name: string) {
   return String(created || "").trim().toUpperCase();
 }
 
+export type CheckoutItem = {
+  id: string;
+  name: string;
+  upc: string;
+  price: number;
+  qty: number;
+  listPrice?: number;
+  discountType?: "none" | "amount" | "percent";
+  discountValue?: number;
+  cost?: number;
+};
+
 export async function holdSale(
-  items: { id: string; name: string; upc: string; price: number; qty: number }[],
+  items: CheckoutItem[],
   discount: { type: "none" | "amount" | "percent"; value: number },
   info: { label?: string; note?: string } = {},
 ) {
@@ -555,7 +582,7 @@ export function saleNet(sale: Pick<Sale, "total" | "refunded">) {
 }
 
 export async function commitSale(
-  items: { id: string; name: string; upc: string; price: number; qty: number }[],
+  items: CheckoutItem[],
   discount?: { type: "none" | "amount" | "percent"; value: number },
 ) {
   const sale = await applyChange(

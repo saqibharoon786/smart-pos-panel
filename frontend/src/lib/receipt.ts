@@ -90,22 +90,31 @@ function receiptHtml(sale: Sale, reprint: boolean) {
     hour: "2-digit",
     minute: "2-digit",
   });
-  const subtotal = sale.items.reduce((s, i) => s + i.price * i.qty, 0);
+  const subtotal = Number(sale.subtotal) || sale.items.reduce((s, i) => s + i.price * i.qty, 0);
+  const itemDiscount = sale.items.reduce((s, i) => s + (Number(i.lineDiscount) || 0), 0);
+  const listGross = sale.items.reduce((s, i) => s + Number(i.listPrice ?? i.price) * i.qty, 0);
   const discount = Number(sale.discount) || 0;
   const discLabel =
     sale.discountType === "percent"
-      ? `Discount (${Number(sale.discountValue) || 0}%):`
-      : "Discount:";
+      ? `Bill discount (${Number(sale.discountValue) || 0}%):`
+      : "Bill discount:";
 
   const rows = sale.items
-    .map(
-      (i) => `<tr>
-        <td class="nm">${esc(i.name)}</td>
+    .map((i) => {
+      const off = Number(i.lineDiscount) || 0;
+      const discNote =
+        off > 0
+          ? i.discountType === "percent"
+            ? `Item disc ${Number(i.discountValue) || 0}%`
+            : `Item disc ${money(off)}`
+          : "";
+      return `<tr>
+        <td class="nm">${esc(i.name)}${discNote ? `<div>${esc(discNote)}</div>` : ""}</td>
         <td class="c">${i.qty}</td>
         <td class="r">${money(i.price)}</td>
         <td class="r">${money(i.price * i.qty)}</td>
-      </tr>`,
-    )
+      </tr>`;
+    })
     .join("");
 
   return `<!doctype html>
@@ -130,6 +139,7 @@ function receiptHtml(sale: Sale, reprint: boolean) {
     </table>
     <div class="rule"></div>
     <div class="totals">
+      ${itemDiscount > 0 ? `<div><span>Items:</span><span>${money(listGross)}</span></div><div><span>Item discount:</span><span>- ${money(itemDiscount)}</span></div>` : ""}
       <div><span>Subtotal:</span><span>${money(subtotal)}</span></div>
       ${discount > 0 ? `<div><span>${discLabel}</span><span>- ${money(discount)}</span></div>` : ""}
       <div><span>Local Sales Tax 0%:</span><span>+ Rs 0.00</span></div>

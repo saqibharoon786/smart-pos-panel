@@ -91,7 +91,16 @@ function PosHistoryPage() {
                   <tr key={item.id} className="border-t border-border">
                     <td className="px-4 py-3 font-medium">{item.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{item.upc || "—"}</td>
-                    <td className="px-4 py-3">Rs {item.price.toFixed(2)}</td>
+                    <td className="px-4 py-3">
+                      Rs {item.price.toFixed(2)}
+                      {(Number(item.lineDiscount) || 0) > 0 && (
+                        <div className="text-xs text-destructive">
+                          {item.discountType === "percent"
+                            ? `item disc ${Number(item.discountValue) || 0}%`
+                            : `item disc Rs ${Number(item.lineDiscount).toFixed(2)}`}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3">{item.qty}</td>
                     <td className="px-4 py-3">{item.returnedQty}</td>
                     <td className="px-4 py-3 font-medium">Rs {(item.price * item.qty).toFixed(2)}</td>
