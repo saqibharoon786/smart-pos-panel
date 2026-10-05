@@ -29,55 +29,66 @@ const money = (n: number) =>
   })}`;
 
 function slipCss() {
+  // 80mm roll, but the print head only marks about 64mm. Anything wider
+  // runs off the right edge of the paper (prices and receipt no. get cut).
   return `
-  @page { size: 72mm auto; margin: 0; }
-  * { box-sizing: border-box; }
+  @page { size: 80mm auto; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     margin: 0;
     padding: 0;
+    width: 80mm;
     background: #fff;
     height: auto !important;
-    overflow: visible !important;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
   }
   body {
-    width: 72mm;
-    margin: 0 auto;
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 1.25;
     color: #000;
     background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   .slip {
-    width: 72mm;
-    margin: 0;
-    padding: 2mm 2mm 0;
+    width: 64mm;
+    margin: 0 auto;
+    padding: 1.5mm 0 0;
   }
-  .meta { display: flex; justify-content: space-between; font-size: 10px; }
+  .meta { display: flex; justify-content: space-between; gap: 2mm; font-size: 9px; }
+  .meta span { min-width: 0; overflow-wrap: anywhere; }
+  .meta span.grow { text-align: right; }
   .c { text-align: center; }
   .r { text-align: right; }
   .b { font-weight: 700; }
-  .shop { text-align: center; margin-top: 2mm; }
-  .shop .name { font-size: 14px; font-weight: 700; }
-  .shop .line { font-size: 10px; }
-  .rule { border-top: 1px solid #000; margin: 1.5mm 0; }
-  table { width: 100%; border-collapse: collapse; }
-  th { font-size: 10px; text-align: left; border-bottom: 1px solid #000; padding-bottom: 0.5mm; }
-  td { font-size: 10px; padding: 0.4mm 0; vertical-align: top; }
-  td.nm { max-width: 34mm; word-break: break-word; }
-  .totals { margin-top: 1mm; }
-  .totals div { display: flex; justify-content: space-between; font-size: 11px; }
-  .grand { font-size: 13px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
-  .terms { margin-top: 2mm; text-align: center; font-size: 11px; font-weight: 600; }
+  .shop { text-align: center; margin-top: 1.5mm; }
+  .shop .name { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+  .shop .line { font-size: 9px; overflow-wrap: anywhere; }
+  .rule { border-top: 1px solid #000; margin: 1.2mm 0; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  col.c-name { width: 40%; }
+  col.c-qty { width: 12%; }
+  col.c-price { width: 24%; }
+  col.c-ext { width: 24%; }
+  th { font-size: 8.5px; text-align: left; border-bottom: 1px solid #000; padding: 0 0.4mm 0.4mm 0; overflow-wrap: anywhere; }
+  td { font-size: 9px; padding: 0.4mm 0.4mm 0.4mm 0; vertical-align: top; overflow-wrap: anywhere; }
+  th.r, td.r { padding-right: 0; }
+  .totals { margin-top: 0.6mm; }
+  .totals div { display: flex; justify-content: space-between; gap: 2mm; font-size: 10px; }
+  .totals div span:first-child { min-width: 0; overflow-wrap: anywhere; }
+  .totals div span:last-child { white-space: nowrap; }
+  .grand { font-size: 12px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
+  .terms { margin-top: 1.5mm; text-align: center; font-size: 9px; font-weight: 600; overflow-wrap: anywhere; }
   .terms .t { font-weight: 700; }
-  .tag { text-align: center; font-weight: 700; margin-top: 2mm; letter-spacing: 1px; }
-  .head { text-align: center; font-weight: 700; font-size: 13px; letter-spacing: 1px; margin-top: 1mm; }
+  .tag { text-align: center; font-weight: 700; margin-top: 1.5mm; letter-spacing: 0.4px; }
+  .head { text-align: center; font-weight: 700; font-size: 12px; letter-spacing: 0.4px; margin-top: 1mm; }
   .cut-space { height: 4mm; }
   @media print {
-    html, body { width: 72mm !important; height: auto !important; overflow: visible !important; }
+    html, body { width: 80mm !important; height: auto !important; overflow-x: hidden !important; overflow-y: visible !important; }
+    .slip { width: 64mm !important; }
   }
 `;
 }
@@ -122,7 +133,7 @@ function receiptHtml(sale: Sale, reprint: boolean) {
 <style>${slipCss()}</style></head>
 <body>
   <div class="slip">
-    <div class="meta"><span>${esc(when)}</span><span>Sales Receipt #${esc(sale.receiptNo)}</span></div>
+    <div class="meta"><span>${esc(when)}</span><span class="grow">Receipt #${esc(sale.receiptNo)}</span></div>
     <div class="meta"><span>Store: ${esc(STORE.storeNo)}</span><span></span></div>
     ${reprint ? '<div class="c b">REPRINTED</div>' : ""}
     <div class="shop">
@@ -134,7 +145,8 @@ function receiptHtml(sale: Sale, reprint: boolean) {
     </div>
     <div class="rule"></div>
     <table>
-      <thead><tr><th>Item Name</th><th class="c">Qty</th><th class="r">Price</th><th class="r">Ext Price</th></tr></thead>
+      <colgroup><col class="c-name"><col class="c-qty"><col class="c-price"><col class="c-ext"></colgroup>
+      <thead><tr><th>Item</th><th class="c">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="rule"></div>
@@ -186,7 +198,7 @@ function returnReceiptHtml(
 <style>${slipCss()}</style></head>
 <body>
   <div class="slip">
-    <div class="meta"><span>${esc(when)}</span><span>Return Slip #${esc(sale.receiptNo)}</span></div>
+    <div class="meta"><span>${esc(when)}</span><span class="grow">Return #${esc(sale.receiptNo)}</span></div>
     <div class="meta"><span>Store: ${esc(STORE.storeNo)}</span><span></span></div>
     <div class="shop">
       <div class="name">${esc(STORE.name)}</div>
@@ -200,7 +212,8 @@ function returnReceiptHtml(
     <div class="meta"><span>Sold On:</span><span>${esc(new Date(sale.at).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }))}</span></div>
     <div class="rule"></div>
     <table>
-      <thead><tr><th>Item Name</th><th class="c">Qty</th><th class="r">Price</th><th class="r">Refund</th></tr></thead>
+      <colgroup><col class="c-name"><col class="c-qty"><col class="c-price"><col class="c-ext"></colgroup>
+      <thead><tr><th>Item</th><th class="c">Qty</th><th class="r">Price</th><th class="r">Refund</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="rule"></div>
@@ -237,7 +250,7 @@ function printHtml(html: string) {
   iframe.style.position = "fixed";
   iframe.style.left = "-1000px";
   iframe.style.top = "0";
-  iframe.style.width = "72mm";
+  iframe.style.width = "80mm";
   iframe.style.height = "800px";
   iframe.style.border = "0";
   iframe.style.opacity = "1";
@@ -273,7 +286,7 @@ function printHtml(html: string) {
     const px = Math.ceil((slip instanceof HTMLElement ? slip.offsetHeight : 0) || 280);
     const mm = Math.ceil((px * 25.4) / 96) + 2;
     const page = inner.createElement("style");
-    page.textContent = `@page { size: 72mm ${mm}mm; margin: 0; }`;
+    page.textContent = `@page { size: 80mm ${mm}mm; margin: 0; }`;
     inner.head.appendChild(page);
     iframe.style.height = `${px + 8}px`;
     win.focus();

@@ -252,16 +252,247 @@ function PosPage() {
   };
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-      <div>
+    <div className="flex h-[calc(100dvh-7.25rem)] min-h-[36rem] flex-col gap-4">
+      <div className="shrink-0">
         <h2 className="text-2xl font-bold tracking-tight">POS — Checkout</h2>
         <p className="text-sm text-muted-foreground">
           Scan or type the UPC / barcode and press Enter. You can also tap a product below.
         </p>
+      </div>
 
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.9fr)]">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-4">
+          <Receipt className="size-4 text-primary" />
+          <h3 className="text-base font-semibold">Current Sale</h3>
+          <span className="ml-auto text-xs text-muted-foreground">{itemCount} item(s)</span>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          {lines.map((l) => (
+            <div key={l.id} className="rounded-lg border border-border p-3 text-sm">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{l.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Line total Rs {(netUnit(l) * l.qty).toFixed(2)}
+                    {l.listPrice > netUnit(l) && (
+                      <span className="ml-1 line-through">Rs {lineGross(l).toFixed(2)}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right text-base font-bold">Rs {(netUnit(l) * l.qty).toFixed(2)}</div>
+                <button
+                  onClick={() => setLines((ls) => ls.filter((x) => x.id !== l.id))}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove ${l.name}`}
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button onClick={() => step(l.id, -1)} className="rounded border border-border p-1.5">
+                  <Minus className="size-3.5" />
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  value={l.qty}
+                  onChange={(e) => setLineQty(l.id, Number(e.target.value))}
+                  aria-label={`Quantity for ${l.name}`}
+                  className="h-9 w-16 rounded-md border border-border bg-background px-2 text-center text-sm outline-none"
+                />
+                <button onClick={() => step(l.id, 1)} className="rounded border border-border p-1.5">
+                  <Plus className="size-3.5" />
+                </button>
+                <span className="ml-auto text-xs text-muted-foreground">Rs</span>
+                <input
+                  type="number"
+                  value={l.listPrice}
+                  onChange={(e) => setLinePrice(l.id, Number(e.target.value))}
+                  aria-label={`Price for ${l.name}`}
+                  className="h-9 w-24 rounded-md border border-border bg-background px-2 text-right text-sm outline-none"
+                />
+                <select
+                  value={l.discType}
+                  onChange={(e) => setLineDiscount(l.id, { discType: e.target.value as DiscType })}
+                  aria-label={`Item discount type for ${l.name}`}
+                  className="h-9 min-w-36 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none"
+                >
+                  <option value="none">No item discount</option>
+                  <option value="percent">Item % off</option>
+                  <option value="amount">Rs off each</option>
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={l.discType === "percent" ? 100 : undefined}
+                  value={l.discValue}
+                  disabled={l.discType === "none"}
+                  onChange={(e) => setLineDiscount(l.id, { discValue: Math.max(0, Number(e.target.value) || 0) })}
+                  aria-label={`Item discount for ${l.name}`}
+                  className="h-9 w-20 rounded-md border border-border bg-background px-2 text-right text-xs outline-none disabled:opacity-50"
+                />
+              </div>
+            </div>
+          ))}
+          {lines.length === 0 && (
+            <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
+              No items yet. Scan a barcode or add a product from the list.
+            </div>
+          )}
+
+          {held.length > 0 && (
+            <div className="border-t border-border pt-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Held receipts ({held.length})
+              </h4>
+              <div className="mt-2 space-y-2">
+                {held.map((h) => (
+                  <div
+                    key={h.id}
+                    className="flex items-center gap-2 rounded-lg border border-border p-2.5 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{h.label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(h.at).toLocaleTimeString()} • {h.items.reduce((s, i) => s + i.qty, 0)} item(s) • Rs{" "}
+                        {Math.max(
+                          0,
+                          h.items.reduce((s, i) => s + i.price * i.qty, 0) -
+                            saleDiscountAmount(
+                              h.items.reduce((s, i) => s + i.price * i.qty, 0),
+                              h.discountType,
+                              h.discountValue,
+                            ),
+                        ).toFixed(2)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => resumeHeld(h.id)}
+                      aria-label={`Resume ${h.label}`}
+                      className="rounded-md bg-primary p-2 text-primary-foreground transition hover:opacity-90"
+                    >
+                      <Play className="size-4" />
+                    </button>
+                    <button
+                      onClick={() => void deleteHeldSale(h.id)}
+                      aria-label={`Delete ${h.label}`}
+                      className="rounded-md border border-border p-2 text-muted-foreground transition hover:text-destructive"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 space-y-3 border-t border-border px-5 py-4">
+          {itemDiscount > 0 && (
+            <div className="flex items-center justify-between text-sm text-destructive">
+              <span>Item discount</span>
+              <span>- Rs {itemDiscount.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Subtotal</span>
+            <span>Rs {subtotal.toFixed(2)}</span>
+          </div>
+
+          <div>
+            <div className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+              <Percent className="size-3" />
+              Bill discount
+            </div>
+            <div className="flex gap-2">
+              <select
+                value={discType}
+                onChange={(e) => setDiscType(e.target.value as DiscType)}
+                aria-label="Discount type"
+                className="h-10 flex-1 rounded-md border border-border bg-background px-2 text-sm outline-none"
+              >
+                <option value="none">No discount</option>
+                <option value="percent">Percentage (%)</option>
+                <option value="amount">Amount (Rs)</option>
+              </select>
+              <input
+                type="number"
+                min={0}
+                max={discType === "percent" ? 100 : undefined}
+                value={discValue}
+                disabled={discType === "none"}
+                onChange={(e) => setDiscValue(Math.max(0, Number(e.target.value)))}
+                aria-label="Discount value"
+                className="h-10 w-24 rounded-md border border-border bg-background px-2 text-right text-sm outline-none disabled:opacity-50"
+              />
+            </div>
+            {discType === "percent" && (
+              <div className="mt-2 flex gap-1">
+                {[5, 10, 15, 20].map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setDiscValue(v)}
+                    className="h-8 flex-1 rounded-md border border-border text-xs transition hover:bg-secondary"
+                  >
+                    {v}%
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {discount > 0 && (
+            <div className="flex items-center justify-between text-sm text-destructive">
+              <span>Bill discount {discType === "percent" ? `(${discValue}%)` : ""}</span>
+              <span>- Rs {discount.toFixed(2)}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between border-t border-border pt-3 text-2xl font-bold">
+            <span>Total</span>
+            <span>Rs {grandTotal.toFixed(2)}</span>
+          </div>
+
+          <button
+            disabled={lines.length === 0}
+            onClick={charge}
+            className="h-12 w-full rounded-lg bg-primary text-base font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+          >
+            Charge
+          </button>
+          <div className="flex gap-2">
+            <input
+              value={holdLabel}
+              onChange={(e) => setHoldLabel(e.target.value)}
+              placeholder="Hold name (e.g. customer name)"
+              aria-label="Hold receipt label"
+              className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none"
+            />
+            <button
+              disabled={lines.length === 0}
+              onClick={hold}
+              className="flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium transition hover:bg-secondary disabled:opacity-50"
+            >
+              <PauseCircle className="size-4" />
+              Hold
+            </button>
+            <button
+              disabled={lines.length === 0}
+              onClick={() => setLines([])}
+              className="h-10 rounded-lg border border-border px-4 text-sm font-medium transition hover:bg-secondary disabled:opacity-50"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="flex min-h-0 flex-col overflow-hidden">
         <form
           onSubmit={scan}
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4"
+          className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4"
         >
           <div className="flex min-w-56 flex-1 items-center gap-2 rounded-lg border border-border bg-background px-3">
             <Barcode className="size-5 text-primary" />
@@ -311,7 +542,7 @@ function PosPage() {
           </div>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">Products</h3>
           <div className="flex min-w-56 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 sm:max-w-xs">
             <Search className="size-4 text-muted-foreground" />
@@ -324,7 +555,7 @@ function PosPage() {
           </div>
         </div>
 
-        <div className="mt-3 overflow-x-auto rounded-xl border border-border bg-card">
+        <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="bg-secondary text-left text-xs text-muted-foreground">
               <tr>
@@ -381,227 +612,6 @@ function PosPage() {
           </div>
         </div>
       </div>
-
-      <div className="h-fit rounded-xl border border-border bg-card p-5 lg:sticky lg:top-6">
-        <div className="flex items-center gap-2 border-b border-border pb-3">
-          <Receipt className="size-4 text-primary" />
-          <h3 className="text-sm font-semibold">Current Sale</h3>
-          <span className="ml-auto text-xs text-muted-foreground">{itemCount} item(s)</span>
-        </div>
-        <div className="space-y-3 py-4">
-          {lines.map((l) => (
-            <div key={l.id} className="rounded-lg border border-border p-3 text-sm">
-              <div className="flex items-start gap-2">
-                <div className="flex-1">
-                  <div className="font-medium">{l.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Line total Rs {(netUnit(l) * l.qty).toFixed(2)}
-                    {l.listPrice > netUnit(l) && (
-                      <span className="ml-1 line-through">Rs {lineGross(l).toFixed(2)}</span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setLines((ls) => ls.filter((x) => x.id !== l.id))}
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label={`Remove ${l.name}`}
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <button onClick={() => step(l.id, -1)} className="rounded border border-border p-1">
-                  <Minus className="size-3" />
-                </button>
-                <input
-                  type="number"
-                  min={1}
-                  value={l.qty}
-                  onChange={(e) => setLineQty(l.id, Number(e.target.value))}
-                  aria-label={`Quantity for ${l.name}`}
-                  className="h-8 w-14 rounded-md border border-border bg-background px-2 text-center text-sm outline-none"
-                />
-                <button onClick={() => step(l.id, 1)} className="rounded border border-border p-1">
-                  <Plus className="size-3" />
-                </button>
-                <span className="ml-auto text-xs text-muted-foreground">Rs</span>
-                <input
-                  type="number"
-                  value={l.listPrice}
-                  onChange={(e) => setLinePrice(l.id, Number(e.target.value))}
-                  aria-label={`Price for ${l.name}`}
-                  className="h-8 w-20 rounded-md border border-border bg-background px-2 text-right text-sm outline-none"
-                />
-              </div>
-              <div className="mt-2 flex gap-2">
-                <select
-                  value={l.discType}
-                  onChange={(e) => setLineDiscount(l.id, { discType: e.target.value as DiscType })}
-                  aria-label={`Item discount type for ${l.name}`}
-                  className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none"
-                >
-                  <option value="none">No item discount</option>
-                  <option value="percent">Item % off</option>
-                  <option value="amount">Rs off each</option>
-                </select>
-                <input
-                  type="number"
-                  min={0}
-                  max={l.discType === "percent" ? 100 : undefined}
-                  value={l.discValue}
-                  disabled={l.discType === "none"}
-                  onChange={(e) => setLineDiscount(l.id, { discValue: Math.max(0, Number(e.target.value) || 0) })}
-                  aria-label={`Item discount for ${l.name}`}
-                  className="h-8 w-16 rounded-md border border-border bg-background px-2 text-right text-xs outline-none disabled:opacity-50"
-                />
-              </div>
-            </div>
-          ))}
-          {lines.length === 0 && <p className="text-sm text-muted-foreground">No items yet.</p>}
-        </div>
-        <div className="space-y-2 border-t border-border pt-3">
-          {itemDiscount > 0 && (
-            <div className="flex items-center justify-between text-sm text-destructive">
-              <span>Item discount</span>
-              <span>- Rs {itemDiscount.toFixed(2)}</span>
-            </div>
-          )}
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Subtotal</span>
-            <span>Rs {subtotal.toFixed(2)}</span>
-          </div>
-
-          <div>
-            <div className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
-              <Percent className="size-3" />
-              Bill discount
-            </div>
-            <div className="flex gap-2">
-              <select
-                value={discType}
-                onChange={(e) => setDiscType(e.target.value as DiscType)}
-                aria-label="Discount type"
-                className="h-9 flex-1 rounded-md border border-border bg-background px-2 text-sm outline-none"
-              >
-                <option value="none">No discount</option>
-                <option value="percent">Percentage (%)</option>
-                <option value="amount">Amount (Rs)</option>
-              </select>
-              <input
-                type="number"
-                min={0}
-                max={discType === "percent" ? 100 : undefined}
-                value={discValue}
-                disabled={discType === "none"}
-                onChange={(e) => setDiscValue(Math.max(0, Number(e.target.value)))}
-                aria-label="Discount value"
-                className="h-9 w-20 rounded-md border border-border bg-background px-2 text-right text-sm outline-none disabled:opacity-50"
-              />
-            </div>
-            {discType === "percent" && (
-              <div className="mt-2 flex gap-1">
-                {[5, 10, 15, 20].map((v) => (
-                  <button
-                    key={v}
-                    onClick={() => setDiscValue(v)}
-                    className="h-7 flex-1 rounded-md border border-border text-xs transition hover:bg-secondary"
-                  >
-                    {v}%
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {discount > 0 && (
-            <div className="flex items-center justify-between text-sm text-destructive">
-              <span>Bill discount {discType === "percent" ? `(${discValue}%)` : ""}</span>
-              <span>- Rs {discount.toFixed(2)}</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between border-t border-border pt-2 text-lg font-bold">
-            <span>Total</span>
-            <span>Rs {grandTotal.toFixed(2)}</span>
-          </div>
-        </div>
-        <button
-          disabled={lines.length === 0}
-          onClick={charge}
-          className="mt-4 h-11 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-        >
-          Charge
-        </button>
-        <div className="mt-2 flex gap-2">
-          <input
-            value={holdLabel}
-            onChange={(e) => setHoldLabel(e.target.value)}
-            placeholder="Hold name (e.g. customer name)"
-            aria-label="Hold receipt label"
-            className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none"
-          />
-          <button
-            disabled={lines.length === 0}
-            onClick={hold}
-            className="flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium transition hover:bg-secondary disabled:opacity-50"
-          >
-            <PauseCircle className="size-4" />
-            Hold
-          </button>
-        </div>
-        <button
-          disabled={lines.length === 0}
-          onClick={() => setLines([])}
-          className="mt-2 h-10 w-full rounded-lg border border-border text-sm font-medium transition hover:bg-secondary disabled:opacity-50"
-        >
-          Clear sale
-        </button>
-
-        {held.length > 0 && (
-          <div className="mt-4 border-t border-border pt-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Held receipts ({held.length})
-            </h4>
-            <div className="mt-2 space-y-2">
-              {held.map((h) => (
-                <div
-                  key={h.id}
-                  className="flex items-center gap-2 rounded-lg border border-border p-2.5 text-sm"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{h.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(h.at).toLocaleTimeString()} • {h.items.reduce((s, i) => s + i.qty, 0)} item(s) • Rs{" "}
-                      {Math.max(
-                        0,
-                        h.items.reduce((s, i) => s + i.price * i.qty, 0) -
-                          saleDiscountAmount(
-                            h.items.reduce((s, i) => s + i.price * i.qty, 0),
-                            h.discountType,
-                            h.discountValue,
-                          ),
-                      ).toFixed(2)}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => resumeHeld(h.id)}
-                    aria-label={`Resume ${h.label}`}
-                    className="rounded-md bg-primary p-2 text-primary-foreground transition hover:opacity-90"
-                  >
-                    <Play className="size-4" />
-                  </button>
-                  <button
-                    onClick={() => void deleteHeldSale(h.id)}
-                    aria-label={`Delete ${h.label}`}
-                    className="rounded-md border border-border p-2 text-muted-foreground transition hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
