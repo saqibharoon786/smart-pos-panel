@@ -1,18 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import {
-  Camera,
-  Minus,
-  PauseCircle,
-  Percent,
-  Play,
-  Plus,
-  Receipt,
-  Search,
-  ShoppingBag,
-  Trash2,
-  X,
-} from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { Camera, Minus, PauseCircle, Percent, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   commitSale,
@@ -96,15 +84,26 @@ function PosPage() {
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(false);
   const [q, setQ] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const [holdLabel, setHoldLabel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [discType, setDiscType] = useState<DiscType>("none");
   const [discValue, setDiscValue] = useState(0);
   const held = useHeldSales();
   const scanRef = useRef<HTMLInputElement>(null);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scanRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onPointer = (event: MouseEvent) => {
+      if (!searchBoxRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    return () => document.removeEventListener("mousedown", onPointer);
   }, []);
 
   const addProductToSale = (p: Product) => {
@@ -178,19 +177,20 @@ function PosPage() {
   const grandTotal = Math.max(0, subtotal - discount);
 
   const nameQuery = q.trim().toLowerCase();
-  const visibleProducts = useMemo(() => {
-    const list = nameQuery
-      ? products.filter((p) =>
-          [p.name, p.itemNo, p.upc, p.alu, p.department].join(" ").toLowerCase().includes(nameQuery),
-        )
-      : products;
-    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  const suggestions = useMemo(() => {
+    if (!nameQuery) return [];
+    return products
+      .filter((p) => [p.name, p.itemNo, p.upc, p.alu, p.department].join(" ").toLowerCase().includes(nameQuery))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 8);
   }, [products, nameQuery]);
 
   const pickProduct = (p: Product) => {
     if (!addProductToSale(p)) return;
     toast.success(`${p.name} added`);
-    if (nameQuery) setQ("");
+    setQ("");
+    setMenuOpen(false);
+    setActiveIndex(0);
     scanRef.current?.focus();
   };
 
@@ -203,13 +203,28 @@ function PosPage() {
       pickProduct(byCode);
       return;
     }
-    if (visibleProducts.length === 1) {
-      pickProduct(visibleProducts[0]);
+    if (suggestions.length > 0) {
+      pickProduct(suggestions[Math.min(activeIndex, suggestions.length - 1)]);
       return;
     }
-    if (visibleProducts.length === 0) {
-      setError(`"${raw}" se koi item nahi mila.`);
-      toast.error("Product not found");
+    setError(`"${raw}" se koi item nahi mila.`);
+    toast.error("Product not found");
+    setMenuOpen(true);
+  };
+
+  const onSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      if (!suggestions.length) return;
+      e.preventDefault();
+      setMenuOpen(true);
+      setActiveIndex((i) => (i + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      if (!suggestions.length) return;
+      e.preventDefault();
+      setMenuOpen(true);
+      setActiveIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+    } else if (e.key === "Escape") {
+      setMenuOpen(false);
     }
   };
 
@@ -299,38 +314,119 @@ function PosPage() {
     scanRef.current?.focus();
   };
 
+  const highlighted = suggestions.length ? Math.min(activeIndex, suggestions.length - 1) : 0;
+  const showMenu = menuOpen && nameQuery.length > 0;
+
   return (
-    <div className="flex flex-col gap-3 lg:h-[calc(100dvh-7.25rem)] lg:min-h-[36rem]">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">POS — Checkout</h2>
-          <p className="text-sm text-muted-foreground">
-            Naam, UPC ya barcode likhein, Add karein, phir Charge se sale complete karein.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="rounded-full bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm ring-1 ring-border">
-            {itemCount} item{itemCount === 1 ? "" : "s"}
-          </span>
-          <span className="rounded-full bg-primary px-3 py-1 text-sm font-semibold tabular-nums text-primary-foreground">
-            {rs(grandTotal)}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.96fr)_minmax(340px,1.04fr)]">
-        <section className="order-2 flex h-[34rem] min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm lg:order-1 lg:h-auto">
-          <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Receipt className="size-4" />
-            </span>
-            <h3 className="text-sm font-semibold">Current Sale</h3>
-            <span className="ml-auto rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-              {itemCount}
-            </span>
+    <div className="-m-6 flex h-[calc(100dvh-4rem)] flex-col overflow-y-auto bg-background">
+      <div
+        className={`mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 ${
+          lines.length === 0 && held.length === 0 ? "justify-center pb-24" : "pt-8"
+        }`}
+      >
+        <form onSubmit={searchItem} className="relative shrink-0">
+          <div className="flex items-center gap-2">
+            <div
+              ref={searchBoxRef}
+              className="relative flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-border bg-card px-4 shadow-sm focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
+            >
+              <Search className="size-5 shrink-0 text-muted-foreground" />
+              <input
+                ref={scanRef}
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setActiveIndex(0);
+                  setMenuOpen(e.target.value.trim().length > 0);
+                  if (error) setError("");
+                }}
+                onKeyDown={onSearchKeyDown}
+                onFocus={() => {
+                  if (q.trim()) setMenuOpen(true);
+                }}
+                placeholder="Barcode ya item ka naam"
+                autoComplete="off"
+                aria-label="Search product by name or barcode"
+                aria-expanded={showMenu}
+                aria-controls="pos-search-menu"
+                aria-activedescendant={showMenu && suggestions[highlighted] ? `pos-opt-${suggestions[highlighted].id}` : undefined}
+                role="combobox"
+                className="h-14 w-full bg-transparent text-base outline-none"
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQ("");
+                    setMenuOpen(false);
+                    setError("");
+                    scanRef.current?.focus();
+                  }}
+                  className="rounded-md p-1 text-muted-foreground hover:bg-secondary"
+                  aria-label="Clear search"
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+              {showMenu && (
+                <ul
+                  id="pos-search-menu"
+                  role="listbox"
+                  className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 max-h-80 overflow-y-auto rounded-2xl border border-border bg-card py-1 shadow-lg"
+                >
+                  {suggestions.length === 0 && (
+                    <li className="px-4 py-3 text-sm text-muted-foreground">Koi item nahi mila</li>
+                  )}
+                  {suggestions.map((p, index) => {
+                    const price = productPrice(p);
+                    const out = Number(p.onHandQty) <= 0;
+                    const code = p.upc || p.itemNo || p.alu || "—";
+                    const active = index === highlighted;
+                    return (
+                      <li key={p.id} role="presentation">
+                        <button
+                          id={`pos-opt-${p.id}`}
+                          type="button"
+                          role="option"
+                          aria-selected={active}
+                          onMouseEnter={() => setActiveIndex(index)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => pickProduct(p)}
+                          className={`flex w-full items-center gap-3 px-4 py-3 text-left ${
+                            active ? "bg-accent" : "hover:bg-secondary/70"
+                          } ${out ? "opacity-60" : ""}`}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium">{p.name}</span>
+                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                              {code}
+                              {p.department ? ` · ${p.department}` : ""}
+                              {out ? " · Out of stock" : ` · Stock ${p.onHandQty}`}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-sm font-semibold tabular-nums">{rs(price)}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setScanning(true)}
+              className="flex h-14 shrink-0 items-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-medium shadow-sm transition hover:bg-secondary"
+            >
+              <Camera className="size-4" />
+              Scan
+            </button>
           </div>
+          {error && <p className="mt-3 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+        </form>
 
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        {(lines.length > 0 || held.length > 0) && (
+        <section className="mt-6 flex flex-col">
+          <div className="space-y-2">
             {lines.map((l) => {
               const unit = netUnit(l);
               const lineTotal = unit * l.qty;
@@ -407,44 +503,69 @@ function PosPage() {
                         className="h-8 w-20 rounded-lg border border-border bg-card px-2 text-right text-sm text-foreground outline-none"
                       />
                     </label>
-                    <select
-                      value={l.discType}
+                    <div
+                      className="flex h-8 min-w-40 flex-1 items-center overflow-hidden rounded-lg border border-border bg-card"
                       onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setLineDiscount(l.id, { discType: e.target.value as DiscType })}
-                      aria-label={`Item discount type for ${l.name}`}
-                      className="h-8 min-w-32 flex-1 rounded-lg border border-border bg-card px-2 text-xs outline-none"
                     >
-                      <option value="none">No item discount</option>
-                      <option value="percent">Item % off</option>
-                      <option value="amount">Rs off each</option>
-                    </select>
-                    <input
-                      type="number"
-                      min={0}
-                      max={l.discType === "percent" ? 100 : undefined}
-                      value={l.discValue}
-                      disabled={l.discType === "none"}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setLineDiscount(l.id, { discValue: Math.max(0, Number(e.target.value) || 0) })}
-                      aria-label={`Item discount for ${l.name}`}
-                      className="h-8 w-16 rounded-lg border border-border bg-card px-2 text-right text-xs outline-none disabled:opacity-40"
-                    />
+                      <input
+                        type="number"
+                        min={0}
+                        max={l.discType === "percent" ? 100 : undefined}
+                        value={l.discValue}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setLineDiscount(l.id, { discType: "none", discValue: 0 });
+                            return;
+                          }
+                          let value = Math.max(0, Number(raw) || 0);
+                          const type: DiscType = l.discType === "percent" ? "percent" : "amount";
+                          if (type === "percent") value = Math.min(100, value);
+                          setLineDiscount(l.id, { discType: value === 0 ? "none" : type, discValue: value });
+                        }}
+                        aria-label={`Item discount for ${l.name}`}
+                        placeholder="Discount"
+                        className="h-full min-w-0 flex-1 bg-transparent px-2 text-right text-xs outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLineDiscount(l.id, {
+                            discType: l.discValue > 0 ? "amount" : "none",
+                            discValue: l.discValue,
+                          });
+                        }}
+                        aria-label={`Rupee discount for ${l.name}`}
+                        className={`h-full border-l border-border px-2 text-[11px] font-semibold ${
+                          l.discType !== "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+                        }`}
+                      >
+                        Rs
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const value = Math.min(100, l.discValue);
+                          setLineDiscount(l.id, {
+                            discType: value > 0 ? "percent" : "percent",
+                            discValue: value,
+                          });
+                        }}
+                        aria-label={`Percent discount for ${l.name}`}
+                        className={`h-full border-l border-border px-2 text-[11px] font-semibold ${
+                          l.discType === "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+                        }`}
+                      >
+                        %
+                      </button>
+                    </div>
                   </div>
                 </article>
               );
             })}
-
-            {lines.length === 0 && (
-              <div className="flex h-full min-h-48 flex-col items-center justify-center px-6 text-center">
-                <span className="flex size-14 items-center justify-center rounded-2xl bg-secondary text-muted-foreground">
-                  <ShoppingBag className="size-6" />
-                </span>
-                <p className="mt-3 text-sm font-medium">Abhi koi item nahi</p>
-                <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                  Search se item dhoondh kar Add karein. Barcode scan karke Enter bhi kaam karta hai.
-                </p>
-              </div>
-            )}
 
             {held.length > 0 && (
               <div className="rounded-xl border border-dashed border-border bg-secondary/40 p-3">
@@ -489,7 +610,8 @@ function PosPage() {
             )}
           </div>
 
-          <div className="shrink-0 space-y-3 border-t border-border bg-secondary/30 px-4 py-3">
+          {lines.length > 0 && (
+          <div className="mt-6 shrink-0 space-y-3 rounded-2xl border border-border bg-card px-4 py-4">
             {itemDiscount > 0 && (
               <div className="flex items-center justify-between text-sm text-destructive">
                 <span>Item discount</span>
@@ -591,118 +713,11 @@ function PosPage() {
               </button>
             </div>
           </div>
+          )}
         </section>
-
-        <section className="order-1 flex h-[34rem] min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm lg:order-2 lg:h-auto">
-          <div className="shrink-0 border-b border-border p-3">
-            <form onSubmit={searchItem} className="flex items-center gap-2">
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-background px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
-                <Search className="size-4 shrink-0 text-primary" />
-                <input
-                  ref={scanRef}
-                  value={q}
-                  onChange={(e) => {
-                    setQ(e.target.value);
-                    if (error) setError("");
-                  }}
-                  placeholder="Item ka naam, UPC ya barcode"
-                  autoComplete="off"
-                  aria-label="Search product by name or barcode"
-                  className="h-11 w-full bg-transparent text-sm outline-none"
-                />
-                {q && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQ("");
-                      setError("");
-                      scanRef.current?.focus();
-                    }}
-                    className="rounded-md p-1 text-muted-foreground hover:bg-secondary"
-                    aria-label="Clear search"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setScanning(true)}
-                className="flex h-11 shrink-0 items-center gap-2 rounded-xl border border-border bg-background px-3.5 text-sm font-medium transition hover:bg-secondary"
-              >
-                <Camera className="size-4" />
-                Scan
-              </button>
-            </form>
-            <p className="mt-2 px-1 text-xs text-muted-foreground">
-              Naam likhein, result par Add dabayein. Barcode scan karke Enter bhi item add kar deta hai.
-            </p>
-            {error && <p className="mt-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-          </div>
-
-          <div className="flex shrink-0 items-center justify-between border-b border-border bg-secondary/40 px-4 py-2 text-xs text-muted-foreground">
-            <span className="font-medium">{nameQuery ? "Search results" : "Products"}</span>
-            <span>{visibleProducts.length}</span>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {visibleProducts.map((p) => {
-              const price = productPrice(p);
-              const list = Number(p.regPrice) || 0;
-              const out = Number(p.onHandQty) <= 0;
-              const code = p.upc || p.itemNo || p.alu || "—";
-              return (
-                <div
-                  key={p.id}
-                  className={`flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 ${
-                    out ? "opacity-55" : "hover:bg-secondary/50"
-                  }`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{p.name}</div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                      <span className="truncate">{code}</span>
-                      {p.department && <span className="truncate">{p.department}</span>}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <div className="text-sm font-semibold tabular-nums">{rs(price)}</div>
-                    {list > price && (
-                      <div className="text-[11px] text-muted-foreground line-through tabular-nums">{rs(list)}</div>
-                    )}
-                    <div className={`text-[11px] ${out ? "text-destructive" : "text-muted-foreground"}`}>
-                      {out ? "Out of stock" : `Stock ${p.onHandQty}`}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => pickProduct(p)}
-                    disabled={out}
-                    className="h-9 shrink-0 rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
-                  >
-                    Add
-                  </button>
-                </div>
-              );
-            })}
-            {visibleProducts.length === 0 && (
-              <div className="flex h-full min-h-48 flex-col items-center justify-center px-6 text-center">
-                <span className="flex size-14 items-center justify-center rounded-2xl bg-secondary text-muted-foreground">
-                  <Search className="size-6" />
-                </span>
-                <p className="mt-3 text-sm font-medium">
-                  {nameQuery ? "Koi matching item nahi" : "Koi product nahi"}
-                </p>
-                <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                  {nameQuery
-                    ? "Naam ya barcode check karein, ya POP se naya item add karein."
-                    : "POP module mein products add karein, phir yahan se sale karein."}
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
+        )}
       </div>
+
 
       <BarcodeScanner open={scanning} onClose={() => setScanning(false)} onScan={(scanned) => handleCode(scanned)} />
     </div>
