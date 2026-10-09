@@ -1,6 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Camera, Minus, PauseCircle, Percent, Play, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  Camera,
+  Minus,
+  PauseCircle,
+  Percent,
+  Play,
+  Plus,
+  Printer,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   commitSale,
@@ -11,9 +22,10 @@ import {
   useHeldSales,
   useProducts,
   type Product,
+  type Sale,
 } from "@/lib/store";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
-import { printReceipt } from "@/lib/receipt";
+import { prepareReceiptPrint, printReceipt } from "@/lib/receipt";
 
 export const Route = createFileRoute("/app/pos")({
   head: () => ({
@@ -90,6 +102,7 @@ function PosPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [discType, setDiscType] = useState<DiscType>("none");
   const [discValue, setDiscValue] = useState(0);
+  const [lastSale, setLastSale] = useState<Sale | null>(null);
   const held = useHeldSales();
   const scanRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
@@ -248,14 +261,33 @@ function PosPage() {
     );
 
   const charge = async () => {
+    let receiptPrinter: ReturnType<typeof prepareReceiptPrint> = null;
     try {
-      const sale = await commitSale(lines.map(toCheckout), { type: discType, value: discValue });
-      if (sale) printReceipt(sale);
-      toast.success(`Sale complete — ${itemCount} item(s), ${rs(grandTotal)}`);
-      clearSale();
+      receiptPrinter = prepareReceiptPrint((error) => {
+        toast.error(`Sale complete, but receipt could not print: ${error.message}`);
+      });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sale failed");
+      toast.error(err instanceof Error ? err.message : "Printer could not be opened");
+      return;
     }
+    if (!receiptPrinter) {
+      toast.error("Printer is busy. Please wait and try again.");
+      return;
+    }
+
+    let sale: Sale;
+    try {
+      sale = await commitSale(lines.map(toCheckout), { type: discType, value: discValue });
+    } catch (err) {
+      receiptPrinter.cancel();
+      toast.error(err instanceof Error ? err.message : "Sale failed");
+      return;
+    }
+
+    setLastSale(sale);
+    receiptPrinter.print(sale);
+    toast.success(`Sale complete — ${itemCount} item(s), ${rs(grandTotal)}`);
+    clearSale();
   };
 
   const hold = async () => {
@@ -686,8 +718,21 @@ function PosPage() {
               onClick={charge}
               className="h-12 w-full rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-45"
             >
-              Charge · {rs(grandTotal)}
+              <span className="inline-flex items-center justify-center gap-2">
+                <Printer className="size-4" />
+                Charge &amp; Print · {rs(grandTotal)}
+              </span>
             </button>
+            {lastSale && (
+              <button
+                onClick={() => printReceipt(lastSale, { reprint: true })}
+                className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card text-sm font-medium transition hover:bg-secondary"
+                aria-label={`Print receipt ${lastSale.receiptNo} again`}
+              >
+                <Printer className="size-4" />
+                Print Last Receipt · {lastSale.receiptNo}
+              </button>
+            )}
             <div className="flex gap-2">
               <input
                 value={holdLabel}

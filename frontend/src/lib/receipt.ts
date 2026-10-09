@@ -28,6 +28,13 @@ const money = (n: number) =>
     maximumFractionDigits: 2,
   })}`;
 
+/** Item columns are narrow, so they show the number only (no "Rs"). */
+const num = (n: number) =>
+  Number(n || 0).toLocaleString("en-PK", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 function slipCss() {
   // 80mm roll, but the print head only marks about 64mm. Anything wider
   // runs off the right edge of the paper (prices and receipt no. get cut).
@@ -58,7 +65,7 @@ function slipCss() {
   .slip {
     width: 64mm;
     margin: 0 auto;
-    padding: 1.5mm 0 0;
+    padding: 0;
   }
   .meta { display: flex; justify-content: space-between; gap: 2mm; font-size: 9px; }
   .meta span { min-width: 0; overflow-wrap: anywhere; }
@@ -66,17 +73,19 @@ function slipCss() {
   .c { text-align: center; }
   .r { text-align: right; }
   .b { font-weight: 700; }
-  .shop { text-align: center; margin-top: 1.5mm; }
+  .shop { text-align: center; margin-top: 0.8mm; }
   .shop .name { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
   .shop .line { font-size: 9px; overflow-wrap: anywhere; }
   .rule { border-top: 1px solid #000; margin: 1.2mm 0; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  col.c-name { width: 40%; }
-  col.c-qty { width: 12%; }
+  col.c-name { width: 38%; }
+  col.c-qty { width: 10%; }
   col.c-price { width: 24%; }
-  col.c-ext { width: 24%; }
+  col.c-ext { width: 28%; }
   th { font-size: 8.5px; text-align: left; border-bottom: 1px solid #000; padding: 0 0.4mm 0.4mm 0; overflow-wrap: anywhere; }
   td { font-size: 9px; padding: 0.4mm 0.4mm 0.4mm 0; vertical-align: top; overflow-wrap: anywhere; }
+  td.r { white-space: nowrap; overflow-wrap: normal; }
+  td.nm div { font-size: 8px; font-weight: 600; }
   th.r, td.r { padding-right: 0; }
   .totals { margin-top: 0.6mm; }
   .totals div { display: flex; justify-content: space-between; gap: 2mm; font-size: 10px; }
@@ -124,8 +133,8 @@ function receiptHtml(sale: Sale, reprint: boolean) {
       return `<tr>
         <td class="nm">${esc(i.name)}${discNote ? `<div>${esc(discNote)}</div>` : ""}</td>
         <td class="c">${i.qty}</td>
-        <td class="r">${money(i.price)}</td>
-        <td class="r">${money(i.price * i.qty)}</td>
+        <td class="r">${num(i.price)}</td>
+        <td class="r">${num(i.price * i.qty)}</td>
       </tr>`;
     })
     .join("");
@@ -189,8 +198,8 @@ function returnReceiptHtml(
       (i) => `<tr>
         <td class="nm">${esc(i.name)}</td>
         <td class="c">${i.qty}</td>
-        <td class="r">${money(i.price)}</td>
-        <td class="r">${money(i.amount)}</td>
+        <td class="r">${num(i.price)}</td>
+        <td class="r">${num(i.amount)}</td>
       </tr>`,
     )
     .join("");
@@ -236,12 +245,18 @@ function returnReceiptHtml(
 
 let busy = false;
 
+type PrintJob = {
+  print: (html: string, onError?: (error: Error) => void) => void;
+  cancel: () => void;
+};
+
 /** Last inked pixel of the slip. Ignores empty space below it. */
 function slipContentPx(slip: HTMLElement) {
   const top = slip.getBoundingClientRect().top;
   let bottom = 0;
-  for (const el of slip.children) {
-    if (!(el instanceof HTMLElement)) continue;
+  // Elements live in the iframe's window, so `instanceof HTMLElement`
+  // (the app window's class) is always false here. Use Element APIs only.
+  for (const el of Array.from(slip.children)) {
     bottom = Math.max(bottom, el.getBoundingClientRect().bottom - top);
   }
   if (bottom > 20) return Math.ceil(bottom + 2);
@@ -253,8 +268,8 @@ function slipContentPx(slip: HTMLElement) {
  * The page is only as long as the receipt, so the roll does not keep feeding.
  * Uses one opaque iframe so the app page itself is never printed.
  */
-function printHtml(html: string) {
-  if (typeof window === "undefined" || busy) return;
+function preparePrintJob(): PrintJob | null {
+  if (typeof window === "undefined" || busy) return null;
   busy = true;
 
   const iframe = document.createElement("iframe");
@@ -275,7 +290,19 @@ function printHtml(html: string) {
   document.body.appendChild(iframe);
 
   const shield = document.createElement("style");
-  shield.textContent = `@media print { body > *:not([data-receipt-print]) { display: none !important; } }`;
+  shield.textContent = `
+    @media print {
+      body > *:not([data-receipt-print]) { display: none !important; }
+      body > iframe[data-receipt-print] {
+        display: block !important;
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 80mm !important;
+        border: 0 !important;
+      }
+    }
+  `;
   document.head.appendChild(shield);
 
   let cleaned = false;
@@ -290,46 +317,90 @@ function printHtml(html: string) {
   const doc = iframe.contentDocument;
   if (!doc) {
     cleanup();
-    return;
+    throw new Error("Receipt print frame could not be opened.");
   }
-  doc.open();
-  doc.write(html);
-  doc.close();
 
-  const fire = () => {
-    const win = iframe.contentWindow;
-    const inner = iframe.contentDocument;
-    const slip = inner?.querySelector(".slip");
-    if (!win || !inner?.body || !(slip instanceof HTMLElement)) {
+  const print = (html: string, onError?: (error: Error) => void) => {
+    const fail = (error: unknown) => {
       cleanup();
-      return;
-    }
+      onError?.(error instanceof Error ? error : new Error("Receipt could not be printed."));
+    };
 
-    const px = slipContentPx(slip);
-    // 96 CSS px = 25.4mm. A couple of mm keeps the last line off the cutter
-    // without feeding a second blank page.
-    const mm = Math.max(50, Math.ceil((px * 25.4) / 96) + 2);
-    const styleEl = inner.querySelector("style");
-    const pageRule = `@page { size: 80mm ${mm}mm; margin: 0; }`;
-    if (styleEl?.textContent) {
-      styleEl.textContent = styleEl.textContent.replace(/@page\s*\{[^}]*\}/, pageRule);
-    }
-    const lock = inner.createElement("style");
-    lock.textContent = `html, body { width: 80mm !important; height: ${mm}mm !important; max-height: ${mm}mm !important; min-height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; }`;
-    inner.head.appendChild(lock);
-    iframe.style.height = `${mm}mm`;
+    try {
+      doc.open();
+      doc.write(html);
+      doc.close();
 
-    window.setTimeout(() => {
-      if (cleaned) return;
-      win.focus();
-      win.addEventListener("afterprint", cleanup, { once: true });
-      win.print();
-      window.setTimeout(cleanup, 20000);
-    }, 60);
+      const fire = () => {
+        if (cleaned) return;
+        const win = iframe.contentWindow;
+        const inner = iframe.contentDocument;
+        const slip = inner?.querySelector<HTMLElement>(".slip");
+        if (!win || !inner?.body || !slip) {
+          fail(new Error("Receipt content is unavailable."));
+          return;
+        }
+
+        // Never let anything run past the printable 64mm: if a long price or
+        // name makes the slip wider, shrink the whole slip to fit.
+        const widest = Math.max(slip.scrollWidth, ...Array.from(slip.querySelectorAll("table")).map((t) => t.scrollWidth));
+        if (widest > slip.clientWidth + 1) {
+          slip.style.zoom = String(slip.clientWidth / widest);
+        }
+
+        const px = slipContentPx(slip);
+        // 96 CSS px = 25.4mm. A couple of mm keeps the last line off the cutter
+        // without feeding a second blank page.
+        const mm = Math.max(20, Math.ceil((px * 25.4) / 96) + 3);
+        const styleEl = inner.querySelector("style");
+        const pageRule = `@page { size: 80mm ${mm}mm; margin: 0; }`;
+        if (styleEl?.textContent) {
+          styleEl.textContent = styleEl.textContent.replace(/@page\s*\{[^}]*\}/, pageRule);
+        }
+        const lock = inner.createElement("style");
+        lock.textContent = `html, body { width: 80mm !important; height: ${mm}mm !important; max-height: ${mm}mm !important; min-height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; }`;
+        inner.head.appendChild(lock);
+        iframe.style.height = `${mm}mm`;
+
+        window.setTimeout(() => {
+          if (cleaned) return;
+          try {
+            win.focus();
+            win.addEventListener("afterprint", cleanup, { once: true });
+            win.print();
+            window.setTimeout(cleanup, 20000);
+          } catch (error) {
+            fail(error);
+          }
+        }, 60);
+      };
+
+      if (doc.readyState === "complete") window.setTimeout(fire, 80);
+      else iframe.onload = () => window.setTimeout(fire, 80);
+    } catch (error) {
+      fail(error);
+    }
   };
 
-  if (doc.readyState === "complete") window.setTimeout(fire, 80);
-  else iframe.onload = () => window.setTimeout(fire, 80);
+  return { print, cancel: cleanup };
+}
+
+function printHtml(html: string) {
+  const job = preparePrintJob();
+  if (!job) return;
+  job.print(html);
+}
+
+/** Reserve the print frame during the checkout click, before the sale is saved. */
+export function prepareReceiptPrint(
+  onError?: (error: Error) => void,
+): { print: (sale: Sale) => void; cancel: () => void } | null {
+  const job = preparePrintJob();
+  if (!job) return null;
+  return {
+    print: (sale) => job.print(receiptHtml(sale, false), onError),
+    cancel: job.cancel,
+  };
 }
 
 /** Print an 80mm thermal slip for one sale. */
