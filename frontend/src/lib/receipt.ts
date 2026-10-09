@@ -54,11 +54,15 @@ function slipCss() {
   }
   body {
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.25;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
     color: #000;
     background: #fff;
+    /* Thermal heads print only black dots; grey anti-aliased edges become fuzz. */
+    -webkit-font-smoothing: none;
+    font-smooth: never;
+    text-rendering: optimizeLegibility;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
@@ -67,35 +71,35 @@ function slipCss() {
     margin: 0 auto;
     padding: 0;
   }
-  .meta { display: flex; justify-content: space-between; gap: 2mm; font-size: 9px; }
+  .meta { display: flex; justify-content: space-between; gap: 2mm; font-size: 12px; }
   .meta span { min-width: 0; overflow-wrap: anywhere; }
   .meta span.grow { text-align: right; }
   .c { text-align: center; }
   .r { text-align: right; }
   .b { font-weight: 700; }
   .shop { text-align: center; margin-top: 0.8mm; }
-  .shop .name { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
-  .shop .line { font-size: 9px; overflow-wrap: anywhere; }
+  .shop .name { font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
+  .shop .line { font-size: 12px; overflow-wrap: anywhere; }
   .rule { border-top: 1px solid #000; margin: 1.2mm 0; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  col.c-name { width: 38%; }
+  col.c-name { width: 35%; }
   col.c-qty { width: 10%; }
-  col.c-price { width: 24%; }
-  col.c-ext { width: 28%; }
-  th { font-size: 8.5px; text-align: left; border-bottom: 1px solid #000; padding: 0 0.4mm 0.4mm 0; overflow-wrap: anywhere; }
-  td { font-size: 9px; padding: 0.4mm 0.4mm 0.4mm 0; vertical-align: top; overflow-wrap: anywhere; }
+  col.c-price { width: 26%; }
+  col.c-ext { width: 29%; }
+  th { font-size: 12px; text-align: left; border-bottom: 1px solid #000; padding: 0 0.4mm 0.4mm 0; overflow-wrap: anywhere; }
+  td { font-size: 12px; padding: 0.4mm 0.4mm 0.4mm 0; vertical-align: top; overflow-wrap: anywhere; }
   td.r { white-space: nowrap; overflow-wrap: normal; }
-  td.nm div { font-size: 8px; font-weight: 600; }
+  td.nm div { font-size: 11px; font-weight: 700; }
   th.r, td.r { padding-right: 0; }
   .totals { margin-top: 0.6mm; }
-  .totals div { display: flex; justify-content: space-between; gap: 2mm; font-size: 10px; }
+  .totals div { display: flex; justify-content: space-between; gap: 2mm; font-size: 13px; }
   .totals div span:first-child { min-width: 0; overflow-wrap: anywhere; }
   .totals div span:last-child { white-space: nowrap; }
-  .grand { font-size: 12px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
-  .terms { margin-top: 1.5mm; text-align: center; font-size: 9px; font-weight: 600; overflow-wrap: anywhere; }
+  .grand { font-size: 16px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
+  .terms { margin-top: 1.5mm; text-align: center; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
   .terms .t { font-weight: 700; }
-  .tag { text-align: center; font-weight: 700; margin-top: 1.5mm; letter-spacing: 0.4px; }
-  .head { text-align: center; font-weight: 700; font-size: 12px; letter-spacing: 0.4px; margin-top: 1mm; }
+  .tag { text-align: center; font-size: 14px; font-weight: 700; margin-top: 1.5mm; letter-spacing: 0.4px; }
+  .head { text-align: center; font-weight: 700; font-size: 16px; letter-spacing: 0.4px; margin-top: 1mm; }
   .cut-space { height: 3mm; }
   @media print {
     html, body { width: 80mm !important; min-height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; }
@@ -341,12 +345,6 @@ function preparePrintJob(): PrintJob | null {
           return;
         }
 
-        // Never let anything run past the printable 64mm: if a long price or
-        // name makes the slip wider, shrink the whole slip to fit.
-        const widest = Math.max(slip.scrollWidth, ...Array.from(slip.querySelectorAll("table")).map((t) => t.scrollWidth));
-        if (widest > slip.clientWidth + 1) {
-          slip.style.zoom = String(slip.clientWidth / widest);
-        }
 
         const px = slipContentPx(slip);
         // 96 CSS px = 25.4mm. A couple of mm keeps the last line off the cutter
